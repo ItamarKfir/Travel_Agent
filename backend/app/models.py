@@ -12,14 +12,14 @@ logger = logging.getLogger(__name__)
 SYSTEM_INSTRUCTION = "You are a helpful assistant. Be concise and accurate. If unsure, say you are unsure."
 
 # Models that don't support system_instruction
-MODELS_WITHOUT_SYSTEM_INSTRUCTION = ["gemma-3-27b-it", "gemma-3-1b-it", "gemma-3-4b-it"]
+MODELS_WITHOUT_SYSTEM_INSTRUCTION = ["gemma-3-27b-it", "gemma-3-1b-it", "gemma-3-4b-it", "gemma-3-12b-it"]
 
 # Model name mapping: user-friendly names to actual API model names
 MODEL_MAPPING = {
     "gemma-3-27b": "gemma-3-27b-it",
     "gemini-2.5-flash-lite": "gemini-2.0-flash-lite",
     "gemini-2.5-flash": "gemini-2.5-flash",
-    "gemma-3-12b": "gemini-2.5-flash"
+    "gemma-3-12b": "gemma-3-12b-it"
 }
 
 ALLOWED_MODELS = [

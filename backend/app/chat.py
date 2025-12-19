@@ -3,6 +3,8 @@ import google.generativeai as genai
 from .database import get_messages, save_message, get_session, create_session
 from .memory import prepare_for_chat, prepare_for_direct_generation
 from .models import model_manager
+from .gemma_tools import handle_gemma_tool_call
+from .tools import execute_tool_call
 
 logger = logging.getLogger(__name__)
 
@@ -61,21 +63,65 @@ def chat_with_model_stream(session_id: str, user_message: str, model: str):
     
     try:
         if is_gemma_model:
-            # Gemma models use direct generation with prompt (streaming)
-            prompt = prepare_for_direct_generation(history, user_message)
-            logger.info(f"Using streaming direct generation for {actual_model_name}")
-            response = genai_model.generate_content(prompt, stream=True)
-            for chunk in response:
-                try:
-                    # Safely get text from chunk - access text property in try block
-                    chunk_text = chunk.text
-                    if chunk_text:
-                        full_answer += chunk_text
-                        yield chunk_text
-                except (ValueError, AttributeError):
-                    # Skip chunks without text (finish markers, etc.)
-                    # This happens when chunk has finish_reason but no text content
-                    continue
+            # Gemma models use prompt-based tool calling
+            try:
+                response_text, tool_used = handle_gemma_tool_call(
+                    model=genai_model,
+                    user_message=user_message,
+                    conversation_history=history,
+                    tool_executor=execute_tool_call
+                )
+                
+                if tool_used:
+                    # Tool was used, yield the response in chunks (simulate streaming)
+                    tool_message = ""
+                    if "[Using calculate tool:" in response_text:
+                        # Extract tool message if present
+                        parts = response_text.split("\n\n", 1)
+                        if len(parts) > 1:
+                            tool_message = parts[0] + "\n\n"
+                            response_text = parts[1]
+                    
+                    # Yield tool message if present
+                    if tool_message:
+                        full_answer += tool_message
+                        yield tool_message
+                    
+                    # Yield the final response in chunks (simulate streaming)
+                    chunk_size = 10
+                    for i in range(0, len(response_text), chunk_size):
+                        chunk = response_text[i:i+chunk_size]
+                        full_answer += chunk
+                        yield chunk
+                    
+                    logger.info(f"Tool calling used for {actual_model_name}")
+                else:
+                    # No tool used, use regular generation
+                    prompt = prepare_for_direct_generation(history, user_message)
+                    logger.info(f"Using streaming direct generation for {actual_model_name}")
+                    response = genai_model.generate_content(prompt, stream=True)
+                    for chunk in response:
+                        try:
+                            chunk_text = chunk.text
+                            if chunk_text:
+                                full_answer += chunk_text
+                                yield chunk_text
+                        except (ValueError, AttributeError):
+                            continue
+            except Exception as e:
+                # Fallback to regular generation if tool calling fails
+                logger.warning(f"Tool calling failed, falling back to regular generation: {e}")
+                prompt = prepare_for_direct_generation(history, user_message)
+                logger.info(f"Using streaming direct generation for {actual_model_name}")
+                response = genai_model.generate_content(prompt, stream=True)
+                for chunk in response:
+                    try:
+                        chunk_text = chunk.text
+                        if chunk_text:
+                            full_answer += chunk_text
+                            yield chunk_text
+                    except (ValueError, AttributeError):
+                        continue
         else:
             # Other models use chat API (streaming)
             chat_history, _ = prepare_for_chat(history, user_message)

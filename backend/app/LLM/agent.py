@@ -17,7 +17,7 @@ from .prompts import DEFAULT_SYSTEM_PROMPT, REACT_PROMPT_TEMPLATE
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gemini-2.0-flash-lite"
+DEFAULT_MODEL = "gemini-2.5-flash-lite"
 
 
 class ReactAgent:

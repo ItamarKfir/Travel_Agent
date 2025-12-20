@@ -21,6 +21,7 @@ from app.LLM import (
     DEFAULT_SYSTEM_PROMPT,
     TRAVEL_AGENT_SYSTEM_PROMPT
 )
+from app.Tools import get_place_reviews_from_apis
 
 # Load environment variables
 load_dotenv()
@@ -131,6 +132,32 @@ class TestReactAgent:
         agent2 = initialize_agent(api_key=api_key)
         
         assert agent1 is not agent2  # Should be different instances
+    
+    def test_agent_with_place_reviews_tool(self, api_key):
+        """Test agent with place reviews tool."""
+        # Check if API keys are available
+        google_places_key = os.getenv("GOOGLE_PLACES_API_KEY")
+        tripadvisor_key = os.getenv("TRIPADVISOR_API_KEY")
+        
+        if not google_places_key and not tripadvisor_key:
+            pytest.skip("Neither GOOGLE_PLACES_API_KEY nor TRIPADVISOR_API_KEY is set")
+        
+        tools = [get_place_reviews_from_apis]
+        agent = ReactAgent(
+            model=DEFAULT_MODEL,
+            tools=tools,
+            system_prompt=TRAVEL_AGENT_SYSTEM_PROMPT,
+            api_key=api_key
+        )
+        
+        assert agent is not None
+        assert len(agent.tools) == 1
+        assert agent.agent_executor is not None
+        
+        # Test with a real query
+        response = agent.run("Can you get reviews for Hilton hotel in Tel Aviv?")
+        assert response is not None
+        assert len(response) > 0
 
 
 if __name__ == "__main__":
@@ -146,39 +173,30 @@ if __name__ == "__main__":
     print("-" * 70)
     
     try:
-        # Test 1: Agent without tools
-        print("\n1. Testing agent without tools...")
-        agent = ReactAgent(api_key=api_key)
-        response = agent.run("What is the capital of France?")
-        print(f"   [OK] Response: {response[:100]}...")
+        print("\n5. Testing agent with place reviews tool (Hilton, Tel Aviv)...")
+        google_places_key = os.getenv("GOOGLE_PLACES_API_KEY")
+        tripadvisor_key = os.getenv("TRIPADVISOR_API_KEY")
         
-        # Test 2: Agent with tools
-        print("\n2. Testing agent with calculator tool...")
-        tools = [calculator]
-        agent_with_tools = ReactAgent(
-            model=DEFAULT_MODEL,
-            tools=tools,
-            api_key=api_key
-        )
-        response = agent_with_tools.run("Calculate 10 * 5")
-        print(f"   [OK] Response: {response[:200]}...")
-        
-        # Test 3: System prompt
-        print("\n3. Testing agent with custom system prompt...")
-        agent_prompt = ReactAgent(
-            model=DEFAULT_MODEL,
-            system_prompt=TRAVEL_AGENT_SYSTEM_PROMPT,
-            api_key=api_key
-        )
-        response = agent_prompt.run("Hello, can you help me plan a trip?")
-        print(f"   [OK] Response: {response[:200]}...")
-        
-        # Test 4: Singleton pattern
-        print("\n5. Testing singleton pattern...")
-        agent_single1 = get_agent(api_key=api_key)
-        agent_single2 = get_agent()
-        assert agent_single1 is agent_single2
-        print("   [OK] Singleton pattern works correctly")
+        if not google_places_key and not tripadvisor_key:
+            print("   [SKIP] Neither GOOGLE_PLACES_API_KEY nor TRIPADVISOR_API_KEY is set")
+        else:
+            from app.Tools import get_place_reviews_from_apis
+            
+            tools = [get_place_reviews_from_apis]
+            agent_places = ReactAgent(
+                model=DEFAULT_MODEL,
+                tools=tools,
+                system_prompt=TRAVEL_AGENT_SYSTEM_PROMPT,
+                api_key=api_key
+            )
+            
+            query = "Can you get reviews for Hilton hotel in Tel Aviv and summarize it for me ( 5 sentences max)?"
+            print(f"   Query: {query}")
+            response = agent_places.run(query)
+            print(f"   Response length: {len(response)} characters")
+            print(f"   Response:\n{response}")
+            assert response is not None
+            assert len(response) > 0
         
         print("\n" + "-" * 70)
         print("All tests passed!")

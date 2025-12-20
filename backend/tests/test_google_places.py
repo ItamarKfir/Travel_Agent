@@ -145,36 +145,34 @@ class TestGooglePlacesClient:
         reviews = client._parse_reviews(raw_reviews)
         assert len(reviews) == 2
         assert all(isinstance(r, Review) for r in reviews)
-        assert reviews[0].author_name == "John Doe"
         assert reviews[0].rating == 5
         assert reviews[1].rating == 3
+        # Verify author_name is not in the Review model
+        assert not hasattr(reviews[0], 'author_name')
     
-    def test_sort_and_split_reviews(self, client):
-        """Test sorting and splitting reviews into top/bottom."""
+    def test_sort_reviews_by_latest(self, client):
+        """Test sorting reviews by latest time."""
+        import time
+        current_time = int(time.time())
+        
         reviews = [
-            Review(author_name="User1", rating=5, text="Great"),
-            Review(author_name="User2", rating=1, text="Bad"),
-            Review(author_name="User3", rating=4, text="Good"),
-            Review(author_name="User4", rating=2, text="Poor"),
-            Review(author_name="User5", rating=5, text="Excellent"),
-            Review(author_name="User6", rating=3, text="Average"),
-            Review(author_name="User7", rating=1, text="Terrible"),
+            Review(rating=5, text="Old review", time=current_time - 10000),
+            Review(rating=1, text="Newest review", time=current_time),
+            Review(rating=4, text="Middle review", time=current_time - 5000),
+            Review(rating=2, text="Review without time", time=None),
         ]
         
-        top_reviews, bottom_reviews = client._sort_and_split_reviews(reviews)
+        sorted_reviews = client._sort_reviews_by_latest(reviews)
         
-        # Should have top 5 (all 5s and 4s)
-        assert len(top_reviews) <= 5
-        # Should have bottom 5 (all 1s and 2s)
-        assert len(bottom_reviews) <= 5
+        # Should have all reviews
+        assert len(sorted_reviews) == 4
         
-        # Top reviews should be sorted highest first
-        if len(top_reviews) > 1:
-            assert top_reviews[0].rating >= top_reviews[-1].rating
-        
-        # Bottom reviews should be sorted lowest first
-        if len(bottom_reviews) > 1:
-            assert bottom_reviews[0].rating <= bottom_reviews[-1].rating
+        # Reviews should be sorted by time descending (latest first)
+        # Reviews with time=None should be at the end
+        assert sorted_reviews[0].time == current_time  # Newest first
+        assert sorted_reviews[1].time == current_time - 5000
+        assert sorted_reviews[2].time == current_time - 10000
+        assert sorted_reviews[3].time is None  # No time at the end
     
     def test_get_reviews_integration(self, client):
         """Integration test for getting reviews."""
@@ -186,11 +184,9 @@ class TestGooglePlacesClient:
             assert place_details.place_id is not None
             assert place_details.name is not None
             
-            # Should have top and bottom reviews (may be empty if no reviews)
-            assert isinstance(place_details.top_reviews, list)
-            assert isinstance(place_details.bottom_reviews, list)
-            assert len(place_details.top_reviews) <= 5
-            assert len(place_details.bottom_reviews) <= 5
+            # Should have reviews (may be empty if no reviews)
+            assert isinstance(place_details.reviews, list)
+            assert len(place_details.reviews) <= 5  # API limit
         
         except ValueError as e:
             # Place not found is acceptable
@@ -270,23 +266,16 @@ if __name__ == "__main__":
         print(f"   [OK] Address: {place_details.address}")
         print(f"   [OK] Rating: {place_details.rating}")
         print(f"   [OK] Total reviews: {place_details.total_reviews}")
-        print(f"   [OK] Top reviews: {len(place_details.top_reviews)}")
-        print(f"   [OK] Bottom reviews: {len(place_details.bottom_reviews)}")
+        print(f"   [OK] Reviews: {len(place_details.reviews)}")
         
-        if place_details.top_reviews:
-            print("\n   Top Review:")
-            for review in place_details.top_reviews:
-                print(f"   - Author: {review.author_name}")
-                print(f"   - Rating: {review.rating}")
-                print(f"   - Text: {review.text[:100]}...")
-
-        
-        if place_details.bottom_reviews:
-            print("\n   Bottom Review:")
-            for review in place_details.bottom_reviews:
-                print(f"   - Author: {review.author_name}")
-                print(f"   - Rating: {review.rating}")
-                print(f"   - Text: {review.text[:100]}...")
+        if place_details.reviews:
+            print("\n   Latest Reviews:")
+            for i, review in enumerate(place_details.reviews, 1):
+                print(f"   {i}. Rating: {review.rating} ⭐")
+                print(f"      Text: {review.text[:100]}...")
+                if review.relative_time_description:
+                    print(f"      Time: {review.relative_time_description}")
+                print()
         
         print("\n" + "-" * 70)
         print("All tests passed!")

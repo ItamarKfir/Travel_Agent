@@ -3,7 +3,6 @@ API integrations module.
 
 This module contains integrations with external APIs:
 - Google Places API
-- Yelp Fusion API
 """
 from .google_places import (
     GooglePlacesClient,
@@ -13,13 +12,6 @@ from .google_places import (
     PlaceDetails
 )
 
-from .yelp import (
-    YelpClient,
-    get_yelp_client,
-    get_business_reviews,
-    Review as YelpReview,
-    BusinessDetails
-)
 
 __all__ = [
     "GooglePlacesClient",
@@ -27,9 +19,5 @@ __all__ = [
     "get_place_reviews",
     "GoogleReview",
     "PlaceDetails",
-    "YelpClient",
-    "get_yelp_client",
-    "get_business_reviews",
-    "YelpReview",
     "BusinessDetails",
 ]

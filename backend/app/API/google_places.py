@@ -2,7 +2,7 @@
 Google Places API integration for fetching place reviews.
 
 This module provides functionality to search for places and retrieve
-the top 5 highest-rated reviews and bottom 5 lowest-rated reviews.
+the latest reviews without author names.
 """
 import os
 import logging
@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 
 class Review(BaseModel):
     """Represents a review from Google Places."""
-    author_name: str
     rating: int = Field(ge=1, le=5)
     text: str
     time: Optional[int] = None
@@ -29,8 +28,7 @@ class PlaceDetails(BaseModel):
     address: Optional[str] = None
     rating: Optional[float] = Field(default=None, ge=0, le=5)
     total_reviews: Optional[int] = None
-    top_reviews: List[Review] = Field(default_factory=list)
-    bottom_reviews: List[Review] = Field(default_factory=list)
+    reviews: List[Review] = Field(default_factory=list)
 
 
 class GooglePlacesClient:
@@ -164,20 +162,19 @@ class GooglePlacesClient:
     
     def _parse_reviews(self, reviews: List[Dict]) -> List[Review]:
         """
-        Parse raw review data into Review objects.
+        Parse raw review data into Review objects (without author names).
         
         Args:
             reviews: List of raw review dictionaries from API
         
         Returns:
-            List of Review objects
+            List of Review objects (rating and text only)
         """
         parsed_reviews = []
         
         for review_data in reviews:
             try:
                 review = Review(
-                    author_name=review_data.get("author_name", "Anonymous"),
                     rating=review_data.get("rating", 0),
                     text=review_data.get("text", ""),
                     time=review_data.get("time"),
@@ -190,49 +187,47 @@ class GooglePlacesClient:
         
         return parsed_reviews
     
-    def _sort_and_split_reviews(
+    def _sort_reviews_by_latest(
         self,
         reviews: List[Review]
-    ) -> Tuple[List[Review], List[Review]]:
+    ) -> List[Review]:
         """
-        Sort reviews by rating and return top 5 and bottom 5.
+        Sort reviews by time (latest first).
         
         Args:
             reviews: List of Review objects
         
         Returns:
-            Tuple of (top_reviews, bottom_reviews)
+            List of reviews sorted by time (latest first)
         """
         if not reviews:
-            return [], []
+            return []
         
-        # Sort by rating descending (highest first)
-        sorted_reviews = sorted(reviews, key=lambda r: r.rating, reverse=True)
+        # Sort by time descending (latest first)
+        # Reviews without time will be placed at the end
+        sorted_reviews = sorted(
+            reviews,
+            key=lambda r: r.time if r.time is not None else 0,
+            reverse=True
+        )
         
-        # Get top 5 highest rated
-        top_reviews = sorted_reviews[:5]
-        
-        # Get bottom 5 lowest rated (reverse sorted list, take last 5, reverse back)
-        bottom_reviews = sorted_reviews[-5:]
-        bottom_reviews.reverse()  # Show lowest first
-        
-        return top_reviews, bottom_reviews
+        return sorted_reviews
     
     def get_reviews(
         self,
         query: str
     ) -> PlaceDetails:
         """
-        Get place reviews - top 5 and bottom 5.
+        Get place reviews - latest reviews sorted by time.
         
         This function searches for a place, retrieves its details and reviews,
-        then returns the top 5 highest-rated and bottom 5 lowest-rated reviews.
+        then returns the latest reviews (sorted by time) without author names.
         
         Args:
             query: Place name or query string (e.g., "Central Park New York")
         
         Returns:
-            PlaceDetails object containing place info and sorted reviews
+            PlaceDetails object containing place info and latest reviews
         
         Raises:
             ValueError: If query is invalid or place not found
@@ -256,8 +251,8 @@ class GooglePlacesClient:
         
         reviews = self._parse_reviews(raw_reviews)
         
-        # Sort and split into top/bottom
-        top_reviews, bottom_reviews = self._sort_and_split_reviews(reviews)
+        # Sort by latest (time)
+        sorted_reviews = self._sort_reviews_by_latest(reviews)
         
         # Build result
         place_details = PlaceDetails(
@@ -266,13 +261,12 @@ class GooglePlacesClient:
             address=place_data.get("formatted_address"),
             rating=place_data.get("rating"),
             total_reviews=place_data.get("user_ratings_total"),
-            top_reviews=top_reviews,
-            bottom_reviews=bottom_reviews
+            reviews=sorted_reviews
         )
         
         logger.info(
-            f"Retrieved reviews for {place_details.name}: "
-            f"{len(top_reviews)} top, {len(bottom_reviews)} bottom"
+            f"Retrieved {len(sorted_reviews)} reviews for {place_details.name} "
+            f"(sorted by latest)"
         )
         
         return place_details
@@ -308,7 +302,7 @@ def get_place_reviews(query: str) -> PlaceDetails:
         query: Place name or query string
     
     Returns:
-        PlaceDetails object with top 5 and bottom 5 reviews
+        PlaceDetails object with latest reviews (sorted by time)
     """
     client = get_google_places_client()
     return client.get_reviews(query)

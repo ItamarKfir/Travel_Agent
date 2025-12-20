@@ -19,7 +19,7 @@ from langchain import hub
 from langchain_core.prompts import PromptTemplate
 from langchain_core.tools import BaseTool
 from langchain_core.messages import HumanMessage
-from .prompts import DEFAULT_SYSTEM_PROMPT, REACT_PROMPT_TEMPLATE
+from .prompts import TRAVEL_AGENT_SYSTEM_PROMPT, REACT_PROMPT_TEMPLATE
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ class ReactAgent:
         self.model_name = model or DEFAULT_MODEL
         self.tools = tools or []
         # Use prompt from prompts.py if not provided, otherwise use provided
-        self.system_prompt = system_prompt if system_prompt is not None else DEFAULT_SYSTEM_PROMPT
+        self.system_prompt = system_prompt if system_prompt is not None else TRAVEL_AGENT_SYSTEM_PROMPT
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         
         if not self.api_key:

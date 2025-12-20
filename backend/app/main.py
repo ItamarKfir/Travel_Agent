@@ -1,3 +1,4 @@
+import os
 import logging
 import uuid
 from fastapi import FastAPI, HTTPException, status  # type: ignore
@@ -11,8 +12,10 @@ from app.LLM.models import (
 from app.Memory.database import init_db, get_session, get_messages
 from app.LLM import get_agent_manager, DEFAULT_MODEL, TRAVEL_AGENT_SYSTEM_PROMPT
 
+# Set logging level from environment variable, default to INFO
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, log_level, logging.INFO),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)

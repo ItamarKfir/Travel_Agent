@@ -18,7 +18,6 @@ from app.LLM import (
     get_agent,
     initialize_agent,
     DEFAULT_MODEL,
-    DEFAULT_SYSTEM_PROMPT,
     TRAVEL_AGENT_SYSTEM_PROMPT
 )
 from app.Tools import get_place_reviews_from_apis

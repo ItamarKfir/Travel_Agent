@@ -45,9 +45,11 @@ def _format_place_reviews_output(
         output += f"{'='*60}\n"
         return output
     
-    output += f"Place: {place_name}\n"
+    # Show address FIRST and prominently for location confirmation
     if address:
-        output += f"Address: {address}\n"
+        output += f"📍 ADDRESS: {address}\n"
+        output += "-" * 60 + "\n"
+    output += f"Place Name: {place_name}\n"
     if rating is not None:
         output += f"Overall Rating: {rating}/5.0\n"
     if total_reviews is not None:
@@ -119,10 +121,20 @@ def get_place_reviews_from_apis(
         google_output = ""
         tripadvisor_output = ""
         
+        # Store place data for comparison
+        google_place_data = None
+        tripadvisor_place_data = None
+        
         # Try Google Places API
         try:
             logger.info(f"Fetching Google Places reviews for: {place_name} ({location})")
             google_data = get_place_reviews(place_name)
+            
+            google_place_data = {
+                "name": google_data.name,
+                "address": google_data.address,
+                "rating": google_data.rating
+            }
             
             google_output = _format_place_reviews_output(
                 source="Google Places",
@@ -184,6 +196,12 @@ def get_place_reviews_from_apis(
                 language="en"
             )
             
+            tripadvisor_place_data = {
+                "name": tripadvisor_data.name,
+                "address": tripadvisor_data.address,
+                "rating": tripadvisor_data.rating
+            }
+            
             tripadvisor_output = _format_place_reviews_output(
                 source="TripAdvisor",
                 place_name=tripadvisor_data.name,
@@ -234,13 +252,72 @@ def get_place_reviews_from_apis(
                 error=error_msg
             )
         
-        # Combine results
+        # Check if different places were found
+        places_match = True
+        if google_place_data and tripadvisor_place_data:
+            # Compare place names (case-insensitive, remove common suffixes)
+            google_name = google_place_data["name"].lower().strip()
+            tripadvisor_name = tripadvisor_place_data["name"].lower().strip()
+            
+            # Simple comparison - check if names are similar (not exact match needed, but should be close)
+            # Remove common words and compare core parts
+            if google_name != tripadvisor_name:
+                # Check if one is clearly different (not just minor variation)
+                # If addresses are very different, they're likely different places
+                google_addr = (google_place_data.get("address") or "").lower()
+                tripadvisor_addr = (tripadvisor_place_data.get("address") or "").lower()
+                
+                # If names don't match and addresses don't match, likely different places
+                if google_addr and tripadvisor_addr and google_addr != tripadvisor_addr:
+                    places_match = False
+        
+        # Extract location and rating information from stored data or outputs
+        google_address = google_place_data.get("address") if google_place_data else None
+        google_rating = google_place_data.get("rating") if google_place_data else None
+        google_name = google_place_data.get("name") if google_place_data else None
+        
+        tripadvisor_address = tripadvisor_place_data.get("address") if tripadvisor_place_data else None
+        tripadvisor_rating = tripadvisor_place_data.get("rating") if tripadvisor_place_data else None
+        tripadvisor_name = tripadvisor_place_data.get("name") if tripadvisor_place_data else None
+        
+        # Combine results with location and rating summary at the top
         combined_output = "\nPLACE REVIEWS SUMMARY\n"
         combined_output += "=" * 60 + "\n"
         combined_output += f"Search Query: {place_name}"
         if location:
             combined_output += f" (in {location})"
         combined_output += "\n" + "=" * 60 + "\n"
+        
+        # Warning if different places were found
+        if not places_match and google_place_data and tripadvisor_place_data:
+            combined_output += "\n⚠️ WARNING: DIFFERENT PLACES FOUND\n"
+            combined_output += "Google Places and TripAdvisor returned different locations:\n"
+            combined_output += f"  • Google Places: {google_name} at {google_address or 'Address not available'}\n"
+            combined_output += f"  • TripAdvisor: {tripadvisor_name} at {tripadvisor_address or 'Address not available'}\n"
+            combined_output += "Please note these are DIFFERENT places. Provide information separately and ask the user which one they want details about.\n"
+            combined_output += "-" * 60 + "\n\n"
+        
+        # Show location information and ratings at the top
+        combined_output += "\n📍 LOCATION INFORMATION:\n"
+        if google_name and google_address:
+            combined_output += f"  📍 Google Places:\n"
+            combined_output += f"     Name: {google_name}\n"
+            combined_output += f"     Address: {google_address}\n"
+            if google_rating is not None:
+                combined_output += f"     Rating: {google_rating}/5.0\n"
+        if tripadvisor_name and tripadvisor_address:
+            combined_output += f"  📍 TripAdvisor:\n"
+            combined_output += f"     Name: {tripadvisor_name}\n"
+            combined_output += f"     Address: {tripadvisor_address}\n"
+            if tripadvisor_rating is not None:
+                combined_output += f"     Rating: {tripadvisor_rating}/5.0\n"
+        
+        # Show combined average only if same place
+        if places_match and google_rating is not None and tripadvisor_rating is not None:
+            avg_rating = (google_rating + tripadvisor_rating) / 2
+            combined_output += f"  • Average Rating: {avg_rating:.1f}/5.0\n"
+        
+        combined_output += "\n" + "-" * 60 + "\n\n"
         
         combined_output += google_output
         combined_output += "\n"
@@ -250,6 +327,11 @@ def get_place_reviews_from_apis(
         combined_output += "\n" + "=" * 60 + "\n"
         combined_output += "SUMMARY:\n"
         combined_output += "This tool searched for reviews from both Google Places and TripAdvisor.\n"
+        if not places_match:
+            combined_output += "⚠️ IMPORTANT: Different places were found. Clearly indicate this to the user and separate the information for each place.\n"
+            combined_output += "Ask the user which place they're interested in, or if they want details about both.\n"
+        else:
+            combined_output += "The address(es) and ratings shown above indicate the location found.\n"
         combined_output += "If either API returned an error, see the error explanation above.\n"
         combined_output += "If no reviews were found, the place might not exist or have reviews.\n"
         combined_output += "You can suggest the user try a different place name or location.\n"

@@ -12,6 +12,7 @@ from typing import List, Optional, Dict
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 
 from .agent import ReactAgent, initialize_agent, DEFAULT_MODEL
+from .prompts import TRAVEL_AGENT_SYSTEM_PROMPT, get_system_prompt_with_history
 from app.Memory.database import get_messages as db_get_messages, save_message as db_save_message
 from app.Memory.database import get_session as db_get_session, create_session as db_create_session
 from app.Memory.memory import convert_to_langchain_messages
@@ -48,7 +49,8 @@ def format_messages_for_agent_input(messages: List[BaseMessage], current_input: 
     Format LangChain messages into a string format for AgentExecutor input.
     
     AgentExecutor expects a single string input, so we format conversation history
-    as a text string that includes previous messages.
+    as a text string that includes previous messages with clear separation between
+    historical context and the current request.
     
     Args:
         messages: List of LangChain BaseMessage objects (conversation history)
@@ -60,20 +62,29 @@ def format_messages_for_agent_input(messages: List[BaseMessage], current_input: 
     if not messages:
         return current_input
     
-    # Build conversation history as text
-    conversation_parts = []
+    # Build formatted input with clear sections
+    formatted_parts = []
     
-    for msg in messages:
+    # Add conversation history section
+    formatted_parts.append("=== PREVIOUS CONVERSATION HISTORY ===")
+    
+    # Number turns for clarity
+    turn_num = 1
+    for i, msg in enumerate[BaseMessage](messages):
         if isinstance(msg, HumanMessage):
-            conversation_parts.append(f"User: {msg.content}")
+            formatted_parts.append(f"\n[Turn {turn_num}] User: {msg.content}")
+            turn_num += 1
         elif isinstance(msg, AIMessage):
-            conversation_parts.append(f"Assistant: {msg.content}")
+            formatted_parts.append(f"Assistant: {msg.content}")
     
-    # Add current user input
-    conversation_parts.append(f"User: {current_input}")
+    # Add clear separator and current request
+    formatted_parts.append("\n" + "=" * 50)
+    formatted_parts.append("=== CURRENT USER REQUEST (Answer this now) ===")
+    formatted_parts.append(f"\nUser: {current_input}")
+    formatted_parts.append("=" * 50)
     
     # Join with newlines
-    formatted_input = "\n".join(conversation_parts)
+    formatted_input = "\n".join(formatted_parts)
     
     return formatted_input
 
@@ -261,21 +272,33 @@ class AgentManager:
             Agent response text
         """
         try:
-            # Prepare input with history if requested
+            # Determine if we have history and need to use history-aware prompt
+            has_history = False
+            history = []
             if session_id and include_history:
-                # Get conversation history
                 history = self.get_memory(session_id)
-                
-                # Format for agent input
-                if history:
-                    agent_input = format_messages_for_agent_input(history, input_text)
-                else:
-                    agent_input = input_text
+                has_history = len(history) > 0
+            
+            # Store original prompt to restore later
+            original_prompt = self._agent.system_prompt
+            
+            # Prepare input with history if requested
+            if has_history:
+                # Format for agent input with history
+                agent_input = format_messages_for_agent_input(history, input_text)
+                # Use system prompt with history context
+                self._agent.set_system_prompt(get_system_prompt_with_history())
             else:
+                # First message - no history
                 agent_input = input_text
+                # Use base system prompt (no history context)
+                self._agent.set_system_prompt(TRAVEL_AGENT_SYSTEM_PROMPT)
             
             # Run the agent
             response = self._agent.run(agent_input)
+            
+            # Restore original prompt
+            self._agent.set_system_prompt(original_prompt)
             
             # Save to memory if session_id provided
             if session_id:
@@ -308,19 +331,27 @@ class AgentManager:
             Response text chunks
         """
         try:
-            # Prepare input with history if requested
+            # Determine if we have history and need to use history-aware prompt
+            has_history = False
+            history = []
             if session_id and include_history:
-                # Get conversation history
                 history = self.get_memory(session_id)
-                
-                # Format for agent input
-                if history:
-                    formatted_input = format_messages_for_agent_input(history, input_text)
-                    agent_input = formatted_input
-                else:
-                    agent_input = input_text
+                has_history = len(history) > 0
+            
+            # Store original prompt to restore later
+            original_prompt = self._agent.system_prompt
+            
+            # Prepare input with history if requested
+            if has_history:
+                # Format for agent input with history
+                agent_input = format_messages_for_agent_input(history, input_text)
+                # Use system prompt with history context
+                self._agent.set_system_prompt(get_system_prompt_with_history())
             else:
+                # First message - no history
                 agent_input = input_text
+                # Use base system prompt (no history context)
+                self._agent.set_system_prompt(TRAVEL_AGENT_SYSTEM_PROMPT)
             
             # Save user message before streaming (if session_id provided)
             if session_id:
@@ -332,6 +363,9 @@ class AgentManager:
                 if chunk:
                     full_response += chunk
                     yield chunk
+            
+            # Restore original prompt
+            self._agent.set_system_prompt(original_prompt)
             
             # Save assistant response after streaming completes
             if session_id and full_response:

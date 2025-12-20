@@ -404,7 +404,7 @@ class TripAdvisorClient:
         self,
         query: str,
         location: Optional[str] = None,
-        limit_reviews: int = 5,
+        limit_reviews: int = 10,
         language: str = "en"
     ) -> PlaceDetails:
         """
@@ -453,13 +453,20 @@ class TripAdvisorClient:
         # Sort by latest (time)
         sorted_reviews = self._sort_reviews_by_latest(reviews)
         
-        # Extract address
-        address = (
-            location_data.get("address") or
-            location_data.get("address_string") or
-            location_data.get("location_string") or
-            None
-        )
+        # Extract address - prioritize address_string from address_obj
+        address = None
+        if "address_obj" in location_data and isinstance(location_data["address_obj"], dict):
+            # Use address_string from address_obj if available (most complete format)
+            address = location_data["address_obj"].get("address_string")
+        
+        # Fallback to other address fields if address_obj not available
+        if not address:
+            address = (
+                location_data.get("address") or
+                location_data.get("address_string") or
+                location_data.get("location_string") or
+                None
+            )
         
         # Extract rating
         rating = None
@@ -519,7 +526,7 @@ def get_tripadvisor_client(api_key: Optional[str] = None) -> TripAdvisorClient:
 def get_location_reviews(
     query: str,
     location: Optional[str] = None,
-    limit_reviews: int = 5,
+    limit_reviews: int = 10,
     language: str = "en"
 ) -> PlaceDetails:
     """

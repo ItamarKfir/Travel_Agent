@@ -107,7 +107,7 @@ async def create_session_endpoint(session_data: SessionCreate):
             detail=f"Model must be one of: {', '.join(ALLOWED_MODELS)}"
         )
     
-    from app.LLM.agent_manager import ensure_session_exists
+    from app.Memory.memory import ensure_session_exists
     session_id = str(uuid.uuid4())
     if ensure_session_exists(session_id, model):
         logger.info(f"Created new session {session_id} with model {model}")
@@ -153,7 +153,7 @@ async def chat_endpoint(request: ChatRequest):
         )
     
     # Ensure session exists
-    from app.LLM.agent_manager import ensure_session_exists
+    from app.Memory.memory import ensure_session_exists
     if not ensure_session_exists(request.session_id, request.model):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

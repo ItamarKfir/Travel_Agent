@@ -9,7 +9,7 @@ from .models import (
     SessionCreate, SessionResponse, SessionDetail, Message,
     ChatRequest, ChatResponse, ALLOWED_MODELS, model_manager
 )
-from .database import (
+from Memory.database import (
     init_db, create_session, get_session, get_messages
 )
 from .chat import init_genai, chat_with_model_stream
@@ -55,7 +55,7 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Close database connection on shutdown."""
-    from .database import db
+    from Memory.database import db
     db.close()
 
 @app.get("/")
@@ -67,7 +67,7 @@ async def health_check():
     """Health check endpoint."""
     try:
         # Check database
-        from .database import db
+        from Memory.database import db
         if not db._initialized:
             return {"status": "unhealthy", "database": "not_initialized"}, 503
         

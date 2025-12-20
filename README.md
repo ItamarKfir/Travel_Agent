@@ -16,7 +16,7 @@ A full-stack LLM chat application with FastAPI backend and React frontend, suppo
 Travel_Agent/
 ├── backend/          # FastAPI backend
 │   ├── app/         # Application code
-│   └── app.db       # SQLite database (created automatically)
+│   └── app_sessions.db       # SQLite database (created automatically)
 ├── frontend/        # React + Vite frontend
 └── README.md
 ```
@@ -186,7 +186,7 @@ Send a chat message and get a response.
 
 ## Database
 
-The backend uses SQLite (`app.db`) to store:
+The backend uses SQLite (`app_sessions.db`) to store:
 - **sessions**: Session metadata (id, created_at, model)
 - **messages**: Chat messages (id, session_id, role, content, created_at)
 
@@ -196,7 +196,7 @@ The database is created automatically on first run.
 
 ### Backend
 - Logs are printed to console
-- Database file: `backend/app.db`
+- Database file: `backend/app_sessions.db`
 - API docs available at `http://localhost:8000/docs`
 
 ### Frontend
@@ -208,7 +208,7 @@ The database is created automatically on first run.
 
 1. **Backend won't start**: Check that `GOOGLE_API_KEY` is set in `.env`
 2. **CORS errors**: Ensure backend is running on port 8000 and frontend on 5173
-3. **Database errors**: Delete `backend/app.db` to reset (will lose all data)
+3. **Database errors**: Delete `backend/app_sessions.db` to reset (will lose all data)
 4. **Model errors**: Verify your API key has access to the selected models
 
 ## License

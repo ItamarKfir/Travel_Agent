@@ -1,7 +1,7 @@
 import logging
 import google.generativeai as genai
-from .database import get_messages, save_message, get_session, create_session
-from .memory import prepare_for_chat, prepare_for_direct_generation
+from Memory.database import get_messages, save_message, get_session, create_session
+from Memory.memory import prepare_for_chat, prepare_for_direct_generation
 from .models import model_manager
 
 logger = logging.getLogger(__name__)

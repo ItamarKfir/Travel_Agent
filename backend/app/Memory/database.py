@@ -9,7 +9,7 @@ from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = "app.db"
+DB_PATH = "app_sessions.db"
 
 
 class Database:

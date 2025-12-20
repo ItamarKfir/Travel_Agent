@@ -40,5 +40,5 @@ yarn-error.log*
 Thumbs.db
 
 # Database
-backend/app.db
+backend/app_sessions.db
 

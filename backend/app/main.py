@@ -5,14 +5,15 @@ from fastapi import FastAPI, HTTPException, status  # type: ignore
 from fastapi.responses import StreamingResponse  # type: ignore
 from fastapi.middleware.cors import CORSMiddleware  # type: ignore
 from dotenv import load_dotenv  # type: ignore
-from .models import (
+from app.LLM.models import (
     SessionCreate, SessionResponse, SessionDetail, Message,
-    ChatRequest, ChatResponse, ALLOWED_MODELS, model_manager
+    ChatRequest, ChatResponse, ALLOWED_MODELS
 )
-from Memory.database import (
-    init_db, create_session, get_session, get_messages
+from app.Memory.database import (
+    init_db, create_session, get_session, get_messages, save_message
 )
-from .chat import init_genai, chat_with_model_stream
+from app.Memory.memory import build_prompt_with_history
+from app.LLM import get_agent, DEFAULT_MODEL, TRAVEL_AGENT_SYSTEM_PROMPT
 
 logging.basicConfig(
     level=logging.INFO,
@@ -42,20 +43,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize database and genai on startup
+# Initialize database and agent on startup
 @app.on_event("startup")
 async def startup_event():
     init_db()  # Initialize database connection
     try:
-        init_genai()  # Initialize models
+        # Initialize agent with tools
+        from app.Tools import get_place_reviews_from_apis
+        tools = [get_place_reviews_from_apis]
+        
+        # Initialize the agent (will be cached as singleton)
+        get_agent(
+            model=DEFAULT_MODEL,
+            tools=tools,
+            system_prompt=TRAVEL_AGENT_SYSTEM_PROMPT
+        )
+        logger.info("Agent initialized with tools")
     except Exception as e:
-        logger.error(f"Failed to initialize genai: {e}")
+        logger.error(f"Failed to initialize agent: {e}")
         raise
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Close database connection on shutdown."""
-    from Memory.database import db
+    from app.Memory.database import db
     db.close()
 
 @app.get("/")
@@ -67,7 +78,7 @@ async def health_check():
     """Health check endpoint."""
     try:
         # Check database
-        from Memory.database import db
+        from app.Memory.database import db
         if not db._initialized:
             return {"status": "unhealthy", "database": "not_initialized"}, 503
         
@@ -75,15 +86,15 @@ async def health_check():
         with db.get_cursor() as cursor:
             cursor.execute("SELECT 1")
         
-        # Check model manager
-        from .models import model_manager
-        if not model_manager._initialized:
-            return {"status": "unhealthy", "model_manager": "not_initialized"}, 503
+        # Check agent
+        from app.LLM.agent import _agent_instance
+        if _agent_instance is None:
+            return {"status": "unhealthy", "agent": "not_initialized"}, 503
         
         return {
             "status": "healthy",
             "database": "connected",
-            "model_manager": "initialized"
+            "agent": "initialized"
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
@@ -135,25 +146,61 @@ async def get_messages_endpoint(session_id: str):
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
-    """Send a chat message and get a streaming response."""
-    # Validate model
+    """Send a chat message and get a streaming response using the React Agent."""
+    # Note: Model validation is kept for API compatibility, but agent uses DEFAULT_MODEL
     if request.model not in ALLOWED_MODELS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Model must be one of: {', '.join(ALLOWED_MODELS)}"
         )
     
+    # Ensure session exists
+    if not get_session(request.session_id):
+        logger.info(f"Session {request.session_id} does not exist, creating it")
+        create_session(request.session_id, request.model)
+    
+    # Get conversation history (before saving the current message)
+    history = get_messages(request.session_id)
+    logger.info(f"Retrieved {len(history)} messages for session {request.session_id}")
+    
     logger.info(
         f"Chat request - Session: {request.session_id}, "
-        f"Model: {request.model}, Message length: {len(request.message)}"
+        f"Message length: {len(request.message)}"
     )
     
     try:
+        # Get the agent instance
+        agent = get_agent()
+        
+        # Build input with conversation history
+        if history:
+            # Include conversation history in the input
+            input_with_history = build_prompt_with_history(history, request.message)
+        else:
+            input_with_history = request.message
+        
+        # Save user message after building history (to avoid including it twice)
+        save_message(request.session_id, "user", request.message)
+        
+        full_response = ""
+        
         def generate():
+            nonlocal full_response
             try:
-                for chunk in chat_with_model_stream(request.session_id, request.message, request.model):
-                    yield f"data: {chunk}\n\n"
+                # Stream agent response
+                for chunk in agent.stream(input_with_history):
+                    if chunk:
+                        full_response += chunk
+                        yield f"data: {chunk}\n\n"
                 yield "data: [DONE]\n\n"
+                
+                # Save assistant response after streaming completes
+                if full_response:
+                    save_message(request.session_id, "assistant", full_response)
+                    logger.info(
+                        f"Chat completed - Session: {request.session_id}, "
+                        f"Response length: {len(full_response)}"
+                    )
             except Exception as e:
                 logger.error(f"Streaming error: {e}", exc_info=True)
                 yield f"data: [ERROR] {str(e)}\n\n"

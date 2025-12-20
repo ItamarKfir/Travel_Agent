@@ -52,7 +52,8 @@ class ReactAgent:
         self._initialize_model()
         self._initialize_agent()
         
-        logger.info(f"ReAct agent initialized with model: {self.model_name}")
+        tools_names = [tool.name for tool in (tools or [])] if tools else []
+        logger.info(f"ReAct agent initialized with model: {self.model_name}, tools: {tools_names}")
     
     def _initialize_model(self):
         """Initialize the language model."""
@@ -247,16 +248,13 @@ def get_agent(
         ReactAgent instance
     """
     global _agent_instance
-    
     if _agent_instance is None or force_new:
         _agent_instance = ReactAgent(
             model=model,
             tools=tools,
             system_prompt=system_prompt,
             api_key=api_key
-        )
-        logger.info("Created new agent instance")
-    
+        )    
     return _agent_instance
 
 

@@ -16,17 +16,17 @@ MODELS_WITHOUT_SYSTEM_INSTRUCTION = ["gemma-3-27b-it", "gemma-3-1b-it", "gemma-3
 
 # Model name mapping: user-friendly names to actual API model names
 MODEL_MAPPING = {
-    "gemma-3-27b": "gemma-3-27b-it",
     "gemini-2.5-flash-lite": "gemini-2.0-flash-lite",
     "gemini-2.5-flash": "gemini-2.5-flash",
-    "gemma-3-12b": "gemma-3-12b-it"
+    "gemini-2.0-flash-lite": "gemini-2.0-flash-lite",
+    "gemini-2.5-flash": "gemini-2.5-flash",
 }
 
 ALLOWED_MODELS = [
-    "gemma-3-27b",
     "gemini-2.5-flash-lite",
     "gemini-2.5-flash",
-    "gemma-3-12b"
+    "gemini-2.0-flash-lite",
+    "gemini-2.5-flash",
 ]
 
 
@@ -96,7 +96,7 @@ model_manager = ModelManager()
 
 # Pydantic models for API
 class SessionCreate(BaseModel):
-    model: Optional[str] = Field(default="gemma-3-27b")
+    model: Optional[str] = Field(default="gemini-2.5-flash-lite")
 
 class SessionResponse(BaseModel):
     session_id: str

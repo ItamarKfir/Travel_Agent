@@ -3,10 +3,10 @@ import { useState, useEffect, useRef } from 'react'
 const API_BASE_URL = 'http://localhost:8000'
 
 const ALLOWED_MODELS = [
-  'gemma-3-27b',
   'gemini-2.5-flash-lite',
+  'gemini-2.0-flash-lite',
   'gemini-2.5-flash',
-  'gemma-3-12b'
+  'gemini-2.5-flash'
 ]
 
 interface Message {
@@ -22,7 +22,7 @@ interface Session {
 
 function App() {
   const [sessionId, setSessionId] = useState<string>('')
-  const [selectedModel, setSelectedModel] = useState<string>('gemma-3-27b')
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-flash-lite')
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)

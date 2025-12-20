@@ -5,6 +5,12 @@ This module provides a ReAct agent with tool support
 and customizable model initialization.
 """
 import os
+# Disable LangSmith tracing BEFORE importing LangChain modules
+if "LANGCHAIN_TRACING_V2" in os.environ:
+    del os.environ["LANGCHAIN_TRACING_V2"]
+    os.environ.pop("LANGCHAIN_TRACING_V2", None)
+    os.environ["LANGCHAIN_TRACING_V2"] = "false"""
+
 import logging
 from typing import List, Optional
 from langchain_google_genai import ChatGoogleGenerativeAI

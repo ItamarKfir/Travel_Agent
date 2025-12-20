@@ -1,4 +1,3 @@
-import os
 import logging
 import uuid
 from fastapi import FastAPI, HTTPException, status  # type: ignore
@@ -9,11 +8,8 @@ from app.LLM.models import (
     SessionCreate, SessionResponse, SessionDetail, Message,
     ChatRequest, ChatResponse, ALLOWED_MODELS
 )
-from app.Memory.database import (
-    init_db, create_session, get_session, get_messages, save_message
-)
-from app.Memory.memory import build_prompt_with_history
-from app.LLM import get_agent, DEFAULT_MODEL, TRAVEL_AGENT_SYSTEM_PROMPT
+from app.Memory.database import init_db, get_session, get_messages
+from app.LLM import get_agent_manager, DEFAULT_MODEL, TRAVEL_AGENT_SYSTEM_PROMPT
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,8 +25,6 @@ except UnicodeDecodeError:
 except Exception as e:
     logger.warning(f"Could not load .env file: {e}. Using environment variables only.")
 
-# Configure logging
-
 # Initialize FastAPI app
 app = FastAPI(title="LLM Chat API", version="1.0.0")
 
@@ -43,24 +37,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize database and agent on startup
+# Initialize database and agent manager on startup
 @app.on_event("startup")
 async def startup_event():
     init_db()  # Initialize database connection
     try:
-        # Initialize agent with tools
+        # Initialize agent manager with tools
         from app.Tools import get_place_reviews_from_apis
         tools = [get_place_reviews_from_apis]
         
-        # Initialize the agent (will be cached as singleton)
-        get_agent(
+        # Initialize the agent manager (will be cached as singleton)
+        get_agent_manager(
             model=DEFAULT_MODEL,
             tools=tools,
             system_prompt=TRAVEL_AGENT_SYSTEM_PROMPT
         )
-        logger.info("Agent initialized with tools")
+        logger.info("Agent manager initialized with tools")
     except Exception as e:
-        logger.error(f"Failed to initialize agent: {e}")
+        logger.error(f"Failed to initialize agent manager: {e}")
         raise
 
 @app.on_event("shutdown")
@@ -86,15 +80,15 @@ async def health_check():
         with db.get_cursor() as cursor:
             cursor.execute("SELECT 1")
         
-        # Check agent
-        from app.LLM.agent import _agent_instance
-        if _agent_instance is None:
-            return {"status": "unhealthy", "agent": "not_initialized"}, 503
+        # Check agent manager
+        from app.LLM.agent_manager import _agent_manager_instance
+        if _agent_manager_instance is None:
+            return {"status": "unhealthy", "agent_manager": "not_initialized"}, 503
         
         return {
             "status": "healthy",
             "database": "connected",
-            "agent": "initialized"
+            "agent_manager": "initialized"
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")
@@ -110,8 +104,9 @@ async def create_session_endpoint(session_data: SessionCreate):
             detail=f"Model must be one of: {', '.join(ALLOWED_MODELS)}"
         )
     
+    from app.LLM.agent_manager import ensure_session_exists
     session_id = str(uuid.uuid4())
-    if create_session(session_id, model):
+    if ensure_session_exists(session_id, model):
         logger.info(f"Created new session {session_id} with model {model}")
         return SessionResponse(session_id=session_id, model=model)
     else:
@@ -146,8 +141,8 @@ async def get_messages_endpoint(session_id: str):
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
-    """Send a chat message and get a streaming response using the React Agent."""
-    # Note: Model validation is kept for API compatibility, but agent uses DEFAULT_MODEL
+    """Send a chat message and get a streaming response using the Agent Manager."""
+    # Note: Model validation is kept for API compatibility, but agent manager uses DEFAULT_MODEL
     if request.model not in ALLOWED_MODELS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -155,13 +150,12 @@ async def chat_endpoint(request: ChatRequest):
         )
     
     # Ensure session exists
-    if not get_session(request.session_id):
-        logger.info(f"Session {request.session_id} does not exist, creating it")
-        create_session(request.session_id, request.model)
-    
-    # Get conversation history (before saving the current message)
-    history = get_messages(request.session_id)
-    logger.info(f"Retrieved {len(history)} messages for session {request.session_id}")
+    from app.LLM.agent_manager import ensure_session_exists
+    if not ensure_session_exists(request.session_id, request.model):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to ensure session exists"
+        )
     
     logger.info(
         f"Chat request - Session: {request.session_id}, "
@@ -169,38 +163,24 @@ async def chat_endpoint(request: ChatRequest):
     )
     
     try:
-        # Get the agent instance
-        agent = get_agent()
-        
-        # Build input with conversation history
-        if history:
-            # Include conversation history in the input
-            input_with_history = build_prompt_with_history(history, request.message)
-        else:
-            input_with_history = request.message
-        
-        # Save user message after building history (to avoid including it twice)
-        save_message(request.session_id, "user", request.message)
-        
-        full_response = ""
+        # Get the agent manager instance
+        agent_manager = get_agent_manager()
         
         def generate():
-            nonlocal full_response
             try:
-                # Stream agent response
-                for chunk in agent.stream(input_with_history):
+                # Stream agent response with automatic history management
+                for chunk in agent_manager.stream(
+                    input_text=request.message,
+                    session_id=request.session_id,
+                    include_history=True
+                ):
                     if chunk:
-                        full_response += chunk
                         yield f"data: {chunk}\n\n"
                 yield "data: [DONE]\n\n"
                 
-                # Save assistant response after streaming completes
-                if full_response:
-                    save_message(request.session_id, "assistant", full_response)
-                    logger.info(
-                        f"Chat completed - Session: {request.session_id}, "
-                        f"Response length: {len(full_response)}"
-                    )
+                logger.info(
+                    f"Chat completed - Session: {request.session_id}"
+                )
             except Exception as e:
                 logger.error(f"Streaming error: {e}", exc_info=True)
                 yield f"data: [ERROR] {str(e)}\n\n"

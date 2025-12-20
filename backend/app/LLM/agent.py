@@ -177,8 +177,12 @@ class ReactAgent:
             else:
                 # Use agent with tools
                 # Prepare input with system prompt if available
+                # Note: When history is included, input_text already contains formatted history
+                # The system prompt provides instructions, but the formatted history in input_text
+                # contains the actual conversation context
                 if self.system_prompt:
                     full_input = f"{self.system_prompt}\n\n{input_text}"
+                    logger.debug(f"Agent input length: {len(full_input)} chars (system prompt: {len(self.system_prompt)} chars, input: {len(input_text)} chars)")
                 else:
                     full_input = input_text
                 

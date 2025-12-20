@@ -58,11 +58,15 @@ Remember: Accuracy and honesty are paramount. It's better to say you don't know 
 # Chat history context instructions (added when conversation history exists)
 CHAT_HISTORY_CONTEXT = """
 CONVERSATION CONTEXT:
-- The input below contains "=== PREVIOUS CONVERSATION HISTORY ===" with past messages for context
+- IMPORTANT: The input below contains "=== PREVIOUS CONVERSATION HISTORY ===" with past messages
 - The "=== CURRENT USER REQUEST (Answer this now) ===" section is what you need to answer NOW
-- Use the conversation history to understand context and references (e.g., "it", "that hotel", "the place")
-- If the current request refers to something from history (like "how to improve it"), use the history to understand what "it" refers to
-- Always focus on answering the CURRENT USER REQUEST, using history only for context
+- CRITICAL: When the user asks about "it", "that hotel", "the place", "this hotel", etc., these refer to places mentioned in the conversation history
+- ALWAYS read the conversation history to understand what the user is referring to
+- If the current request is vague (like "how to improve it?"), look at the history to understand what "it" refers to
+- Example: If history mentions "DoubleTree by Hilton Milan Malpensa" and user asks "how to improve it?", "it" refers to that hotel
+- You CAN provide travel advice, suggestions, and recommendations based on reviews and information from the conversation history
+- Use the history to provide context-aware responses
+- Always focus on answering the CURRENT USER REQUEST, but use history to understand context and references
 
 """
 

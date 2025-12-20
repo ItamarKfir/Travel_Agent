@@ -70,7 +70,7 @@ def format_messages_for_agent_input(messages: List[BaseMessage], current_input: 
     
     # Number turns for clarity
     turn_num = 1
-    for i, msg in enumerate[BaseMessage](messages):
+    for i, msg in enumerate(messages):
         if isinstance(msg, HumanMessage):
             formatted_parts.append(f"\n[Turn {turn_num}] User: {msg.content}")
             turn_num += 1
@@ -288,11 +288,13 @@ class AgentManager:
                 agent_input = format_messages_for_agent_input(history, input_text)
                 # Use system prompt with history context
                 self._agent.set_system_prompt(get_system_prompt_with_history())
+                logger.debug(f"Using history-aware prompt. History length: {len(history)} messages, formatted input length: {len(agent_input)} chars")
             else:
                 # First message - no history
                 agent_input = input_text
                 # Use base system prompt (no history context)
                 self._agent.set_system_prompt(TRAVEL_AGENT_SYSTEM_PROMPT)
+                logger.debug(f"No history, using base prompt. Input: {input_text[:100]}...")
             
             # Run the agent
             response = self._agent.run(agent_input)
@@ -347,11 +349,13 @@ class AgentManager:
                 agent_input = format_messages_for_agent_input(history, input_text)
                 # Use system prompt with history context
                 self._agent.set_system_prompt(get_system_prompt_with_history())
+                logger.debug(f"Using history-aware prompt for streaming. History length: {len(history)} messages, formatted input length: {len(agent_input)} chars")
             else:
                 # First message - no history
                 agent_input = input_text
                 # Use base system prompt (no history context)
                 self._agent.set_system_prompt(TRAVEL_AGENT_SYSTEM_PROMPT)
+                logger.debug(f"No history for streaming, using base prompt. Input: {input_text[:100]}...")
             
             # Save user message before streaming (if session_id provided)
             if session_id:

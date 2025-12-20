@@ -186,12 +186,43 @@ def get_place_reviews_from_apis(
                 error=error_msg
             )
         
-        # Try TripAdvisor API
+        # Try TripAdvisor API - Use Google Places results if available for better accuracy
+        tripadvisor_data = None
+        tripadvisor_place_data = None
+        tripadvisor_output = ""
+        
+        # Prepare TripAdvisor search parameters
+        # Priority: Use Google Places name and location if available (more accurate)
+        if google_place_data:
+            # Extract location from Google Places address or use provided location
+            google_location = None
+            if google_place_data.get("address"):
+                # Extract city from address (e.g., "Tel Aviv-Yafo" from "HaYarkon St 205, Tel Aviv-Yafo, 6340506, Israel")
+                address_parts = google_place_data["address"].split(",")
+                if len(address_parts) >= 2:
+                    # Try to get city name
+                    city_part = address_parts[-2].strip() if len(address_parts) >= 2 else None
+                    country_part = address_parts[-1].strip() if len(address_parts) >= 1 else None
+                    if city_part and country_part:
+                        google_location = f"{city_part}, {country_part}"
+            
+            # Use Google Places name and location for TripAdvisor search
+            tripadvisor_query = google_place_data["name"]
+            tripadvisor_location = google_location or location
+            
+            logger.info(f"Using Google Places data for TripAdvisor search: query='{tripadvisor_query}', location='{tripadvisor_location}'")
+        else:
+            # Fallback to original parameters if Google Places failed
+            tripadvisor_query = place_name
+            tripadvisor_location = location
+            logger.info(f"Using original parameters for TripAdvisor search: query='{tripadvisor_query}', location='{tripadvisor_location}'")
+        
+        # First attempt for TripAdvisor
         try:
-            logger.info(f"Fetching TripAdvisor reviews for: {place_name} ({location})")
+            logger.info(f"TripAdvisor attempt 1: query='{tripadvisor_query}', location='{tripadvisor_location}'")
             tripadvisor_data = get_location_reviews(
-                query=place_name,
-                location=location,
+                query=tripadvisor_query,
+                location=tripadvisor_location,
                 limit_reviews=5,
                 language="en"
             )
@@ -202,6 +233,102 @@ def get_place_reviews_from_apis(
                 "rating": tripadvisor_data.rating
             }
             
+            # Check if TripAdvisor result matches Google Places (if available)
+            if google_place_data:
+                # Simple matching: check if place names are similar
+                google_name_lower = google_place_data["name"].lower()
+                tripadvisor_name_lower = tripadvisor_data.name.lower()
+                
+                # Check if TripAdvisor returned a generic location instead of the specific place
+                # If Google found a specific hotel but TripAdvisor found a city/generic location, try again
+                is_generic_location = (
+                    tripadvisor_name_lower == tripadvisor_location.lower().split(",")[0].strip().lower() or
+                    tripadvisor_name_lower in ["tel aviv", "milan", "paris", "new york"] or
+                    len(tripadvisor_data.name.split()) <= 2  # Very short names might be generic
+                )
+                
+                # Check if names don't match at all
+                name_match = (
+                    any(word in tripadvisor_name_lower for word in google_name_lower.split() if len(word) > 3) or
+                    any(word in google_name_lower for word in tripadvisor_name_lower.split() if len(word) > 3)
+                )
+                
+                if is_generic_location or not name_match:
+                    logger.warning(f"TripAdvisor attempt 1 returned non-matching result: '{tripadvisor_data.name}' vs Google '{google_place_data['name']}'. Trying attempt 2...")
+                    # Try second attempt with extracted place name
+                    raise ValueError("Result doesn't match Google Places, trying different search")
+            
+        except (ValueError, Exception) as e:
+            # Second attempt: Extract just the main place name (remove location info)
+            if google_place_data:
+                # Extract just the hotel/place name (e.g., "Hilton" from "Hilton Tel Aviv")
+                google_name = google_place_data["name"]
+                # Try to extract the brand/place name (usually first word or two)
+                name_words = google_name.split()
+                
+                # Try different strategies
+                attempts = [
+                    # Try just the first word (e.g., "Hilton" from "Hilton Tel Aviv")
+                    (" ".join(name_words[:1]), tripadvisor_location),
+                    # Try first two words (e.g., "DoubleTree by" from "DoubleTree by Hilton")
+                    (" ".join(name_words[:2]), tripadvisor_location) if len(name_words) >= 2 else None,
+                ]
+                
+                # Filter out None attempts
+                attempts = [a for a in attempts if a is not None]
+                
+                for attempt_num, (query_attempt, location_attempt) in enumerate(attempts, start=2):
+                    try:
+                        logger.info(f"TripAdvisor attempt {attempt_num}: query='{query_attempt}', location='{location_attempt}'")
+                        tripadvisor_data = get_location_reviews(
+                            query=query_attempt,
+                            location=location_attempt,
+                            limit_reviews=5,
+                            language="en"
+                        )
+                        
+                        # Check if this result is better
+                        tripadvisor_name_lower = tripadvisor_data.name.lower()
+                        google_name_lower = google_name.lower()
+                        
+                        # Check if it matches better
+                        name_match = (
+                            any(word in tripadvisor_name_lower for word in google_name_lower.split() if len(word) > 3) or
+                            any(word in google_name_lower for word in tripadvisor_name_lower.split() if len(word) > 3)
+                        )
+                        
+                        if name_match and not tripadvisor_name_lower == location_attempt.lower().split(",")[0].strip().lower():
+                            logger.info(f"TripAdvisor attempt {attempt_num} succeeded with better match: '{tripadvisor_data.name}'")
+                            tripadvisor_place_data = {
+                                "name": tripadvisor_data.name,
+                                "address": tripadvisor_data.address,
+                                "rating": tripadvisor_data.rating
+                            }
+                            break
+                    except Exception as e2:
+                        logger.debug(f"TripAdvisor attempt {attempt_num} failed: {e2}")
+                        continue
+                else:
+                    # All attempts failed, use the first result if we have it, otherwise raise
+                    if tripadvisor_data is None:
+                        # Set tripadvisor_data to None to trigger error handling below
+                        pass
+                    # Otherwise, use the first result even if it doesn't match perfectly
+                    elif tripadvisor_place_data is None:
+                        # If we have tripadvisor_data but haven't set tripadvisor_place_data, set it now
+                        tripadvisor_place_data = {
+                            "name": tripadvisor_data.name,
+                            "address": tripadvisor_data.address,
+                            "rating": tripadvisor_data.rating
+                        }
+            
+            # If google_place_data is None, we don't have a second attempt strategy, just handle error normally
+            elif tripadvisor_data is None:
+                # This means the first attempt failed and we don't have Google Places data for a second attempt
+                raise ValueError("Location not found on TripAdvisor")
+        
+        # Format TripAdvisor output if we have data
+        if tripadvisor_data:
             tripadvisor_output = _format_place_reviews_output(
                 source="TripAdvisor",
                 place_name=tripadvisor_data.name,
@@ -210,24 +337,20 @@ def get_place_reviews_from_apis(
                 total_reviews=tripadvisor_data.total_reviews,
                 reviews=tripadvisor_data.reviews
             )
-            
-        except ValueError as e:
-            error_msg = str(e)
+        
+        # Handle TripAdvisor errors
+        if tripadvisor_data is None:
+            # This means all attempts failed
+            error_msg = "Location not found on TripAdvisor after multiple search attempts"
             logger.warning(f"TripAdvisor error: {error_msg}")
             
-            # Provide helpful error explanation
-            if "not found" in error_msg.lower() or "location not found" in error_msg.lower():
-                explanation = (
-                    f"The location '{place_name}' was not found in TripAdvisor. "
-                    f"Possible reasons:\n"
-                    f"1. The place name might be misspelled or too vague\n"
-                    f"2. The location parameter might need adjustment (e.g., try 'Paris, France' instead of just 'Paris')\n"
-                    f"3. Try using the full official name of the place\n"
-                    f"4. Some places might not be listed on TripAdvisor\n"
-                    f"5. Verify the spelling of both place name and location"
-                )
-            else:
-                explanation = f"TripAdvisor API error: {error_msg}"
+            explanation = (
+                f"The place could not be found in TripAdvisor after trying multiple search strategies. "
+                f"This might mean:\n"
+                f"1. The place doesn't exist in TripAdvisor's database\n"
+                f"2. The place name or location might need to be different on TripAdvisor\n"
+                f"3. Try searching TripAdvisor directly with the place name"
+            )
             
             tripadvisor_output = _format_place_reviews_output(
                 source="TripAdvisor",
@@ -237,19 +360,6 @@ def get_place_reviews_from_apis(
                 total_reviews=None,
                 reviews=[],
                 error=explanation
-            )
-            
-        except Exception as e:
-            error_msg = f"Unexpected error with TripAdvisor API: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            tripadvisor_output = _format_place_reviews_output(
-                source="TripAdvisor",
-                place_name=place_name,
-                address=None,
-                rating=None,
-                total_reviews=None,
-                reviews=[],
-                error=error_msg
             )
         
         # Check if different places were found
@@ -329,7 +439,7 @@ def get_place_reviews_from_apis(
         combined_output += "This tool searched for reviews from both Google Places and TripAdvisor.\n"
         if not places_match:
             combined_output += "⚠️ IMPORTANT: Different places were found. Clearly indicate this to the user and separate the information for each place.\n"
-            combined_output += "Ask the user which place they're interested in, or if they want details about both.\n"
+            combined_output += "IMPORTANT: Ask the user which place they're interested in, or if they want details about both.\n"
         else:
             combined_output += "The address(es) and ratings shown above indicate the location found.\n"
         combined_output += "If either API returned an error, see the error explanation above.\n"

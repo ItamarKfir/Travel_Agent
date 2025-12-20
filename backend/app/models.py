@@ -19,7 +19,7 @@ MODEL_MAPPING = {
     "gemma-3-27b": "gemma-3-27b-it",
     "gemini-2.5-flash-lite": "gemini-2.0-flash-lite",
     "gemini-2.5-flash": "gemini-2.5-flash",
-    "gemma-3-12b": "gemini-2.5-flash"
+    "gemma-3-12b": "gemma-3-12b-it"
 }
 
 ALLOWED_MODELS = [

@@ -1,10 +1,18 @@
+"""
+Chat handler with support for LangChain agents (Google models) and direct generation (Gemma models).
+"""
 import logging
 import google.generativeai as genai
+from typing import Iterator
+
 from .database import get_messages, save_message, get_session, create_session
-from .memory import prepare_for_chat, prepare_for_direct_generation
+from .memory import prepare_for_direct_generation
 from .models import model_manager
+from .agent import create_react_agent, stream_agent_response
+from .gemma_tools import stream_gemma_with_tools
 
 logger = logging.getLogger(__name__)
+
 
 def init_genai():
     """Initialize the Google Generative AI client (lazy - models load on first use)."""
@@ -24,7 +32,70 @@ def init_genai():
     except Exception as e:
         logger.warning(f"Could not list available models: {e}")
 
-def chat_with_model_stream(session_id: str, user_message: str, model: str):
+
+def _ensure_session_exists(session_id: str, model: str) -> None:
+    """Ensure session exists, create if it doesn't."""
+    if not get_session(session_id):
+        logger.info(f"Session {session_id} does not exist, creating it with model {model}")
+        create_session(session_id, model)
+
+
+def _handle_gemma_model_stream(
+    genai_model: genai.GenerativeModel,
+    history: list,
+    user_message: str
+) -> Iterator[str]:
+    """
+    Handle streaming for Gemma models using direct generation.
+    
+    Args:
+        genai_model: The initialized Gemma model
+        history: Conversation history
+        user_message: Current user message
+    
+    Yields:
+        Response chunks
+    """
+    prompt = prepare_for_direct_generation(history, user_message)
+    logger.info("Using streaming direct generation for Gemma model")
+    
+    response = genai_model.generate_content(prompt, stream=True)
+    for chunk in response:
+        try:
+            chunk_text = chunk.text
+            if chunk_text:
+                yield chunk_text
+        except (ValueError, AttributeError):
+            # Skip chunks without text (finish markers, etc.)
+            continue
+
+
+def _handle_google_model_stream(
+    actual_model_name: str,
+    history: list,
+    user_message: str
+) -> Iterator[str]:
+    """
+    Handle streaming for Google models using LangChain agent.
+    
+    Args:
+        actual_model_name: The actual API model name
+        history: Conversation history
+        user_message: Current user message
+    
+    Yields:
+        Response chunks
+    """
+    logger.info(f"Using LangChain ReAct agent for model: {actual_model_name}")
+    
+    # Create ReAct agent
+    agent = create_react_agent(actual_model_name)
+    
+    # Stream agent response
+    yield from stream_agent_response(agent, user_message, history)
+
+
+def chat_with_model_stream(session_id: str, user_message: str, model: str) -> Iterator[str]:
     """
     Stream chat response from the model.
     
@@ -37,9 +108,7 @@ def chat_with_model_stream(session_id: str, user_message: str, model: str):
         Chunks of the assistant's response
     """
     # Ensure session exists
-    if not get_session(session_id):
-        logger.info(f"Session {session_id} does not exist, creating it with model {model}")
-        create_session(session_id, model)
+    _ensure_session_exists(session_id, model)
     
     # Get conversation history
     history = get_messages(session_id)
@@ -48,132 +117,35 @@ def chat_with_model_stream(session_id: str, user_message: str, model: str):
     # Save user message
     save_message(session_id, "user", user_message)
     
-    # Get the actual model name from mapping and get model (lazy initialization)
+    # Get the actual model name from mapping
     actual_model_name = model_manager.get_actual_model_name(model)
     logger.info(f"Using model: {actual_model_name} (requested: {model})")
     
-    # Get model from manager (initializes on first use, then reuses cached instance)
-    genai_model = model_manager.get_model(actual_model_name)
-    
-    # Determine if we should use chat or direct generation
-    is_gemma_model = "gemma" in actual_model_name.lower()
     full_answer = ""
     
     try:
+        # Determine if it's a Gemma model
+        is_gemma_model = "gemma" in actual_model_name.lower()
+        
         if is_gemma_model:
-            # Gemma models use direct generation with prompt (streaming)
-            prompt = prepare_for_direct_generation(history, user_message)
-            logger.info(f"Using streaming direct generation for {actual_model_name}")
-            response = genai_model.generate_content(prompt, stream=True)
-            for chunk in response:
-                try:
-                    # Safely get text from chunk - access text property in try block
-                    chunk_text = chunk.text
-                    if chunk_text:
-                        full_answer += chunk_text
-                        yield chunk_text
-                except (ValueError, AttributeError):
-                    # Skip chunks without text (finish markers, etc.)
-                    # This happens when chunk has finish_reason but no text content
-                    continue
+            # Gemma models use prompt-based tool calling (not LangChain)
+            genai_model = model_manager.get_model(actual_model_name)
+            for chunk in stream_gemma_with_tools(genai_model, user_message, history):
+                full_answer += chunk
+                yield chunk
         else:
-            # Other models use chat API (streaming)
-            chat_history, _ = prepare_for_chat(history, user_message)
-            chat = genai_model.start_chat(history=chat_history[:-1])
-            logger.info(f"Using streaming chat API for {actual_model_name}")
-            response = chat.send_message(user_message, stream=True)
-            for chunk in response:
-                try:
-                    # Safely get text from chunk - access text property in try block
-                    chunk_text = chunk.text
-                    if chunk_text:
-                        full_answer += chunk_text
-                        yield chunk_text
-                except (ValueError, AttributeError):
-                    # Skip chunks without text (finish markers, etc.)
-                    # This happens when chunk has finish_reason but no text content
-                    continue
+            # Google models use LangChain ReAct agent
+            for chunk in _handle_google_model_stream(actual_model_name, history, user_message):
+                full_answer += chunk
+                yield chunk
         
         # Save assistant response after streaming completes
         save_message(session_id, "assistant", full_answer)
         logger.info(
             f"Chat completed - Session: {session_id}, "
-            f"Model used: {actual_model_name} (requested: {model}), "
+            f"Model: {actual_model_name} (requested: {model}), "
             f"Response length: {len(full_answer)}"
         )
     except Exception as e:
         logger.error(f"Error in chat_with_model_stream for session {session_id}: {e}", exc_info=True)
         raise
-
-def chat_with_model(session_id: str, user_message: str, model: str) -> str:
-    """
-    Chat with the model using conversation history.
-    
-    Args:
-        session_id: The session ID
-        user_message: The new user message
-        model: The model name to use
-    
-    Returns:
-        The assistant's response
-    """
-    # Ensure session exists
-    if not get_session(session_id):
-        logger.info(f"Session {session_id} does not exist, creating it with model {model}")
-        create_session(session_id, model)
-    
-    # Get conversation history
-    history = get_messages(session_id)
-    logger.info(f"Retrieved {len(history)} messages for session {session_id}")
-    
-    # Save user message
-    save_message(session_id, "user", user_message)
-    
-    try:
-        # Get the actual model name from mapping
-        actual_model_name = model_manager.get_actual_model_name(model)
-        logger.info(f"Using model: {actual_model_name} (requested: {model})")
-        
-        # Get model from manager (reuses cached instance)
-        genai_model = model_manager.get_model(actual_model_name)
-        
-        # Determine if we should use chat or direct generation
-        is_gemma_model = "gemma" in actual_model_name.lower()
-        
-        if is_gemma_model:
-            # Gemma models use direct generation with prompt (streaming)
-            prompt = prepare_for_direct_generation(history, user_message)
-            logger.info(f"Using streaming direct generation for {actual_model_name}")
-            response = genai_model.generate_content(prompt, stream=True)
-            answer = ""
-            for chunk in response:
-                if chunk.text:
-                    answer += chunk.text
-        else:
-            # Other models use chat API (streaming)
-            chat_history, _ = prepare_for_chat(history, user_message)
-            chat = genai_model.start_chat(history=chat_history[:-1])
-            logger.info(f"Using streaming chat API for {actual_model_name}")
-            response = chat.send_message(user_message, stream=True)
-            answer = ""
-            for chunk in response:
-                if chunk.text:
-                    answer += chunk.text
-        
-        # Save assistant response
-        save_message(session_id, "assistant", answer)
-        
-        request_length = len(user_message)
-        response_length = len(answer)
-        logger.info(
-            f"Chat completed - Session: {session_id}, "
-            f"Model used: {actual_model_name} (requested: {model}), "
-            f"Request length: {request_length}, Response length: {response_length}"
-        )
-        
-        return answer
-        
-    except Exception as e:
-        logger.error(f"Error in chat_with_model for session {session_id}: {e}", exc_info=True)
-        raise
-

@@ -186,146 +186,109 @@ def get_place_reviews_from_apis(
                 error=error_msg
             )
         
-        # Try TripAdvisor API - Use Google Places results if available for better accuracy
+        # Try TripAdvisor API - Use Google Places address if available for better accuracy
         tripadvisor_data = None
         tripadvisor_place_data = None
         tripadvisor_output = ""
         
-        # Prepare TripAdvisor search parameters
-        # Priority: Use Google Places name and location if available (more accurate)
-        if google_place_data:
-            # Extract location from Google Places address or use provided location
-            google_location = None
-            if google_place_data.get("address"):
-                # Extract city from address (e.g., "Tel Aviv-Yafo" from "HaYarkon St 205, Tel Aviv-Yafo, 6340506, Israel")
-                address_parts = google_place_data["address"].split(",")
+        if google_place_data and google_place_data.get("address"):
+            # Strategy: Use Google Places address to extract location for TripAdvisor search
+            google_address = google_place_data["address"]
+            google_name = google_place_data["name"]
+            
+            # Extract city and country from Google Places address for TripAdvisor location
+            # Format: "Street, City, Postal, Country" or "Street, City, Country"
+            address_parts = [part.strip() for part in google_address.split(",")]
+            
+            # Extract city and country (usually last two parts)
+            if len(address_parts) >= 2:
+                # Try different combinations
+                location_attempts = []
+                
+                # Attempt 1: City, Country (most common)
                 if len(address_parts) >= 2:
-                    # Try to get city name
-                    city_part = address_parts[-2].strip() if len(address_parts) >= 2 else None
-                    country_part = address_parts[-1].strip() if len(address_parts) >= 1 else None
-                    if city_part and country_part:
-                        google_location = f"{city_part}, {country_part}"
-            
-            # Use Google Places name and location for TripAdvisor search
-            tripadvisor_query = google_place_data["name"]
-            tripadvisor_location = google_location or location
-            
-            logger.info(f"Using Google Places data for TripAdvisor search: query='{tripadvisor_query}', location='{tripadvisor_location}'")
-        else:
-            # Fallback to original parameters if Google Places failed
-            tripadvisor_query = place_name
-            tripadvisor_location = location
-            logger.info(f"Using original parameters for TripAdvisor search: query='{tripadvisor_query}', location='{tripadvisor_location}'")
-        
-        # First attempt for TripAdvisor
-        try:
-            logger.info(f"TripAdvisor attempt 1: query='{tripadvisor_query}', location='{tripadvisor_location}'")
-            tripadvisor_data = get_location_reviews(
-                query=tripadvisor_query,
-                location=tripadvisor_location,
-                limit_reviews=5,
-                language="en"
-            )
-            
-            tripadvisor_place_data = {
-                "name": tripadvisor_data.name,
-                "address": tripadvisor_data.address,
-                "rating": tripadvisor_data.rating
-            }
-            
-            # Check if TripAdvisor result matches Google Places (if available)
-            if google_place_data:
-                # Simple matching: check if place names are similar
-                google_name_lower = google_place_data["name"].lower()
-                tripadvisor_name_lower = tripadvisor_data.name.lower()
+                    location_attempts.append(f"{address_parts[-2]}, {address_parts[-1]}")
                 
-                # Check if TripAdvisor returned a generic location instead of the specific place
-                # If Google found a specific hotel but TripAdvisor found a city/generic location, try again
-                is_generic_location = (
-                    tripadvisor_name_lower == tripadvisor_location.lower().split(",")[0].strip().lower() or
-                    tripadvisor_name_lower in ["tel aviv", "milan", "paris", "new york"] or
-                    len(tripadvisor_data.name.split()) <= 2  # Very short names might be generic
-                )
+                # Attempt 2: Just city if country is obvious
+                if len(address_parts) >= 2:
+                    location_attempts.append(address_parts[-2])
                 
-                # Check if names don't match at all
-                name_match = (
-                    any(word in tripadvisor_name_lower for word in google_name_lower.split() if len(word) > 3) or
-                    any(word in google_name_lower for word in tripadvisor_name_lower.split() if len(word) > 3)
-                )
+                # Attempt 3: Use provided location if available
+                if location:
+                    location_attempts.append(location)
                 
-                if is_generic_location or not name_match:
-                    logger.warning(f"TripAdvisor attempt 1 returned non-matching result: '{tripadvisor_data.name}' vs Google '{google_place_data['name']}'. Trying attempt 2...")
-                    # Try second attempt with extracted place name
-                    raise ValueError("Result doesn't match Google Places, trying different search")
-            
-        except (ValueError, Exception) as e:
-            # Second attempt: Extract just the main place name (remove location info)
-            if google_place_data:
-                # Extract just the hotel/place name (e.g., "Hilton" from "Hilton Tel Aviv")
-                google_name = google_place_data["name"]
-                # Try to extract the brand/place name (usually first word or two)
-                name_words = google_name.split()
+                # Remove duplicates while preserving order
+                seen = set()
+                unique_location_attempts = []
+                for loc in location_attempts:
+                    if loc not in seen:
+                        seen.add(loc)
+                        unique_location_attempts.append(loc)
+                location_attempts = unique_location_attempts
                 
-                # Try different strategies
-                attempts = [
-                    # Try just the first word (e.g., "Hilton" from "Hilton Tel Aviv")
-                    (" ".join(name_words[:1]), tripadvisor_location),
-                    # Try first two words (e.g., "DoubleTree by" from "DoubleTree by Hilton")
-                    (" ".join(name_words[:2]), tripadvisor_location) if len(name_words) >= 2 else None,
-                ]
+                # Try TripAdvisor search with Google Places name and extracted location
+                tripadvisor_query = google_name
                 
-                # Filter out None attempts
-                attempts = [a for a in attempts if a is not None]
-                
-                for attempt_num, (query_attempt, location_attempt) in enumerate(attempts, start=2):
+                for attempt_num, location_attempt in enumerate(location_attempts, 1):
                     try:
-                        logger.info(f"TripAdvisor attempt {attempt_num}: query='{query_attempt}', location='{location_attempt}'")
+                        logger.info(f"TripAdvisor attempt {attempt_num}: query='{tripadvisor_query}', location='{location_attempt}'")
                         tripadvisor_data = get_location_reviews(
-                            query=query_attempt,
+                            query=tripadvisor_query,
                             location=location_attempt,
                             limit_reviews=5,
                             language="en"
                         )
                         
-                        # Check if this result is better
-                        tripadvisor_name_lower = tripadvisor_data.name.lower()
-                        google_name_lower = google_name.lower()
-                        
-                        # Check if it matches better
-                        name_match = (
-                            any(word in tripadvisor_name_lower for word in google_name_lower.split() if len(word) > 3) or
-                            any(word in google_name_lower for word in tripadvisor_name_lower.split() if len(word) > 3)
-                        )
-                        
-                        if name_match and not tripadvisor_name_lower == location_attempt.lower().split(",")[0].strip().lower():
-                            logger.info(f"TripAdvisor attempt {attempt_num} succeeded with better match: '{tripadvisor_data.name}'")
-                            tripadvisor_place_data = {
-                                "name": tripadvisor_data.name,
-                                "address": tripadvisor_data.address,
-                                "rating": tripadvisor_data.rating
-                            }
-                            break
-                    except Exception as e2:
-                        logger.debug(f"TripAdvisor attempt {attempt_num} failed: {e2}")
-                        continue
-                else:
-                    # All attempts failed, use the first result if we have it, otherwise raise
-                    if tripadvisor_data is None:
-                        # Set tripadvisor_data to None to trigger error handling below
-                        pass
-                    # Otherwise, use the first result even if it doesn't match perfectly
-                    elif tripadvisor_place_data is None:
-                        # If we have tripadvisor_data but haven't set tripadvisor_place_data, set it now
                         tripadvisor_place_data = {
                             "name": tripadvisor_data.name,
                             "address": tripadvisor_data.address,
                             "rating": tripadvisor_data.rating
                         }
-            
-            # If google_place_data is None, we don't have a second attempt strategy, just handle error normally
-            elif tripadvisor_data is None:
-                # This means the first attempt failed and we don't have Google Places data for a second attempt
-                raise ValueError("Location not found on TripAdvisor")
+                        logger.info(f"TripAdvisor search succeeded: '{tripadvisor_data.name}'")
+                        break
+                    except Exception as e:
+                        logger.debug(f"TripAdvisor attempt {attempt_num} failed: {e}")
+                        if attempt_num == len(location_attempts):
+                            # Last attempt failed
+                            raise
+                        continue
+            else:
+                # Fallback: Use original parameters
+                try:
+                    logger.info(f"TripAdvisor search with original parameters: query='{google_name}', location='{location}'")
+                    tripadvisor_data = get_location_reviews(
+                        query=google_name,
+                        location=location,
+                        limit_reviews=5,
+                        language="en"
+                    )
+                    tripadvisor_place_data = {
+                        "name": tripadvisor_data.name,
+                        "address": tripadvisor_data.address,
+                        "rating": tripadvisor_data.rating
+                    }
+                except Exception as e:
+                    logger.warning(f"TripAdvisor search failed: {e}")
+                    tripadvisor_data = None
+        
+        else:
+            # Fallback to original parameters if Google Places failed or no address
+            try:
+                logger.info(f"TripAdvisor search with original parameters: query='{place_name}', location='{location}'")
+                tripadvisor_data = get_location_reviews(
+                    query=place_name,
+                    location=location,
+                    limit_reviews=5,
+                    language="en"
+                )
+                tripadvisor_place_data = {
+                    "name": tripadvisor_data.name,
+                    "address": tripadvisor_data.address,
+                    "rating": tripadvisor_data.rating
+                }
+            except Exception as e:
+                logger.warning(f"TripAdvisor search failed: {e}")
+                tripadvisor_data = None
         
         # Format TripAdvisor output if we have data
         if tripadvisor_data:
@@ -363,22 +326,96 @@ def get_place_reviews_from_apis(
             )
         
         # Check if different places were found
+        # Use address matching as the primary indicator (addresses are more reliable than names)
         places_match = True
         if google_place_data and tripadvisor_place_data:
-            # Compare place names (case-insensitive, remove common suffixes)
-            google_name = google_place_data["name"].lower().strip()
-            tripadvisor_name = tripadvisor_place_data["name"].lower().strip()
+            google_addr = (google_place_data.get("address") or "").lower()
+            tripadvisor_addr = (tripadvisor_place_data.get("address") or "").lower()
             
-            # Simple comparison - check if names are similar (not exact match needed, but should be close)
-            # Remove common words and compare core parts
-            if google_name != tripadvisor_name:
-                # Check if one is clearly different (not just minor variation)
-                # If addresses are very different, they're likely different places
-                google_addr = (google_place_data.get("address") or "").lower()
-                tripadvisor_addr = (tripadvisor_place_data.get("address") or "").lower()
+            # Normalize addresses for comparison (remove common variations)
+            def normalize_address(addr: str) -> str:
+                """Normalize address for comparison by removing common variations."""
+                normalized = addr.lower()
+                # Remove common suffixes and variations
+                normalized = normalized.replace(" street", " st")
+                normalized = normalized.replace(" avenue", " ave")
+                normalized = normalized.replace(" road", " rd")
+                normalized = normalized.replace(" boulevard", " blvd")
+                # Remove extra spaces
+                normalized = " ".join(normalized.split())
+                # Remove punctuation differences
+                normalized = normalized.replace(".", "").replace(",", "")
+                return normalized.strip()
+            
+            google_addr_normalized = normalize_address(google_addr) if google_addr else ""
+            tripadvisor_addr_normalized = normalize_address(tripadvisor_addr) if tripadvisor_addr else ""
+            
+            # Extract street number and name for comparison (more reliable than full address)
+            def extract_street_info(addr: str) -> tuple:
+                """Extract street number and street name from address."""
+                if not addr:
+                    return ("", "")
+                parts = addr.split(",")
+                street_part = parts[0].strip() if parts else ""
+                # Extract number and street name (e.g., "19 Hayarkon St" or "19 Hayarkon Street")
+                words = street_part.split()
+                if words and words[0].isdigit():
+                    street_num = words[0]
+                    street_name = " ".join(words[1:]).lower()
+                    # Normalize street name - convert to lowercase and remove common suffixes
+                    # Remove street type suffixes for comparison (keep the core name)
+                    street_name = street_name.replace(" street", "").replace(" st", "").replace(" avenue", "").replace(" ave", "").replace(" road", "").replace(" rd", "")
+                    street_name = street_name.strip()
+                    return (street_num, street_name)
+                return ("", street_part.lower())
+            
+            google_street = extract_street_info(google_addr)
+            tripadvisor_street = extract_street_info(tripadvisor_addr)
+            
+            # Check if addresses match (same street number and name = same place)
+            addresses_match = False
+            if google_street[0] and tripadvisor_street[0]:  # Both have street numbers
+                # Same street number and similar street name = same place
+                if google_street[0] == tripadvisor_street[0]:
+                    # Check if street names are similar (allow for minor variations)
+                    google_street_words = set(google_street[1].split())
+                    tripadvisor_street_words = set(tripadvisor_street[1].split())
+                    # If significant words overlap, it's likely the same street
+                    common_words = google_street_words.intersection(tripadvisor_street_words)
+                    # Filter out very short words (a, the, etc.)
+                    common_words = {w for w in common_words if len(w) > 2}
+                    if common_words:
+                        addresses_match = True
+            elif google_addr_normalized and tripadvisor_addr_normalized:
+                # No street numbers, but check if normalized addresses are similar
+                # Check if they share significant words
+                google_words = set(google_addr_normalized.split())
+                tripadvisor_words = set(tripadvisor_addr_normalized.split())
+                common_words = google_words.intersection(tripadvisor_words)
+                # Filter out very short/common words
+                common_words = {w for w in common_words if len(w) > 3 and w not in ["the", "and", "at"]}
+                # If addresses share significant location words (city, street name, etc.), likely same place
+                if len(common_words) >= 2:  # At least 2 significant words match
+                    addresses_match = True
+            
+            # If addresses match (same location), it's the same place regardless of name differences
+            if addresses_match:
+                places_match = True
+            else:
+                # Addresses don't match - check names as secondary indicator
+                google_name = google_place_data["name"].lower().strip()
+                tripadvisor_name = tripadvisor_place_data["name"].lower().strip()
                 
-                # If names don't match and addresses don't match, likely different places
-                if google_addr and tripadvisor_addr and google_addr != tripadvisor_addr:
+                # If names are very similar, might still be same place (address might be formatted differently)
+                name_words_google = set(w for w in google_name.split() if len(w) > 3)
+                name_words_tripadvisor = set(w for w in tripadvisor_name.split() if len(w) > 3)
+                common_name_words = name_words_google.intersection(name_words_tripadvisor)
+                
+                if len(common_name_words) >= 2:  # Multiple significant words match
+                    # Names match well - might be same place, address format difference
+                    places_match = True
+                else:
+                    # Different addresses and different names = likely different places
                     places_match = False
         
         # Extract location and rating information from stored data or outputs

@@ -8,8 +8,8 @@ interface EmptyStateProps {
 const EXAMPLE_QUESTIONS = [
   'Tell me about Hilton Tel Aviv',
   'What are the main complaints about Hilton Tel Aviv?',
-  'Summarize the positive feedback from customers on Royal beach tel aviv',
-  'Compare reviews from Google Places vs TripAdvisor for Royal beach tel aviv',
+  'Summarize the positive feedback from customers on Sheraton Grand Tel Aviv',
+  'Compare reviews from Google Places vs TripAdvisor for Sheraton Grand Tel Aviv',
 ]
 
 export const EmptyState: React.FC<EmptyStateProps> = ({ onExampleClick }) => {
@@ -29,40 +29,6 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ onExampleClick }) => {
           Analyze customer reviews from Google Places and TripAdvisor to get
           actionable insights for your business
         </p>
-      </div>
-
-      <div className="empty-state-section">
-        <h3 className="empty-state-section-title">
-          <span>💡</span> What can I do?
-        </h3>
-        <ul className="empty-state-list">
-          <li className="empty-state-list-item">
-            <span className="empty-state-checkmark">✓</span>
-            <span>
-              Fetch reviews from <strong>Google Places</strong> and{' '}
-              <strong>TripAdvisor</strong>
-            </span>
-          </li>
-          <li className="empty-state-list-item">
-            <span className="empty-state-checkmark">✓</span>
-            <span>
-              Analyze sentiment and identify common themes in customer feedback
-            </span>
-          </li>
-          <li className="empty-state-list-item">
-            <span className="empty-state-checkmark">✓</span>
-            <span>
-              Get actionable recommendations on how to improve your business
-            </span>
-          </li>
-          <li className="empty-state-list-item">
-            <span className="empty-state-checkmark">✓</span>
-            <span>
-              Summarize positive and negative feedback to understand customer
-              sentiment
-            </span>
-          </li>
-        </ul>
       </div>
 
       <div className="empty-state-section">

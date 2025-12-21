@@ -12,12 +12,12 @@ const ALLOWED_MODELS = [
   'gemini-2.5-flash-lite',
   'gemini-2.0-flash-lite',
   'gemini-2.5-flash',
-  'gemini-2.5-flash',
+  'gemini-2.0-flash',
 ]
 
 function App() {
   const [sessionId, setSessionId] = useState<string>('')
-  const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-flash-lite')
+  const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-flash')
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)

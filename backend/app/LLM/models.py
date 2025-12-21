@@ -26,7 +26,7 @@ ALLOWED_MODELS = [
 
 # Pydantic models for API
 class SessionCreate(BaseModel):
-    model: Optional[str] = Field(default="gemini-2.5-flash-lite")
+    model: Optional[str] = Field(default="gemini-2.5-flash")
 
 class SessionResponse(BaseModel):
     session_id: str

@@ -23,7 +23,7 @@ from .prompts import TRAVEL_AGENT_SYSTEM_PROMPT, REACT_PROMPT_TEMPLATE
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gemini-2.5-flash-lite"
+DEFAULT_MODEL = "gemini-2.5-flash"
 
 
 class ReactAgent:

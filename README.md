@@ -45,8 +45,10 @@ This application is designed for **business owners** who want to:
 ### User Experience
 - **Session Management**: Create and manage multiple analysis sessions for different businesses or locations
 - **Persistent History**: All conversations and analyses saved to SQLite database for future reference
-- **Modern Dark Mode UI**: Clean, professional interface built with React and TypeScript
+- **Modern Dark Mode UI**: Clean, professional interface built with React and TypeScript with gradient backgrounds and smooth animations
 - **Interactive Chat Interface**: Natural language interface for asking questions about reviews and getting insights
+- **Real-time Backend Health Monitoring**: Visual indicator showing backend connection status
+- **Component-Based UI**: Modular, reusable components for maintainable and scalable codebase
 
 ## 🏗️ Project Structure
 
@@ -71,9 +73,20 @@ Travel_Agent/
 │   └── app_sessions.db        # SQLite database (auto-created)
 ├── frontend/                  # React + Vite frontend
 │   ├── src/
+│   │   ├── api/               # API client utilities
+│   │   │   └── client.ts      # Centralized API client
+│   │   ├── components/        # Reusable React components
+│   │   │   ├── TopBar.tsx     # Header with model selector and session info
+│   │   │   ├── EmptyState.tsx # Welcome screen component
+│   │   │   ├── MessageBubble.tsx # Message display component
+│   │   │   ├── InputArea.tsx  # Chat input form component
+│   │   │   └── LoadingIndicator.tsx # Loading spinner component
 │   │   ├── App.tsx            # Main React component
-│   │   └── main.tsx          # Application entry point
-│   └── package.json          # Node.js dependencies
+│   │   ├── App.css            # Component-specific styles
+│   │   ├── types.ts           # TypeScript type definitions
+│   │   ├── index.css          # Global styles
+│   │   └── main.tsx           # Application entry point
+│   └── package.json           # Node.js dependencies
 └── README.md
 ```
 
@@ -386,8 +399,14 @@ The system uses carefully crafted prompts to ensure:
 
 ### Frontend Architecture
 - **React 18**: Component-based UI library with hooks
-- **TypeScript**: Type-safe JavaScript for better code quality
+- **TypeScript**: Type-safe JavaScript for better code quality and maintainability
 - **Vite**: Next-generation build tool for fast development and optimized production builds
+- **Component-Based Design**: Modular, reusable components (TopBar, EmptyState, MessageBubble, InputArea, LoadingIndicator) for better code organization
+- **Separation of Concerns**: 
+  - Styles separated into CSS files (App.css for component styles, index.css for global styles)
+  - API logic abstracted into dedicated client utility (api/client.ts)
+  - Type definitions centralized (types.ts)
+  - Clean component architecture with single-responsibility principle
 
 ### API Integrations
 - **Google Places API**: Fetches place details, ratings, and customer reviews
@@ -477,8 +496,11 @@ AI: [Provides actionable recommendations]
 ### Frontend
 - **Hot Module Replacement**: Instant updates during development
 - **TypeScript**: Full type safety for better code quality
-- **Dark Mode**: Modern, professional dark theme
+- **Dark Mode**: Modern, professional dark theme with gradient backgrounds
 - **Real-time Streaming**: SSE (Server-Sent Events) for live AI responses
+- **Component Architecture**: Clean, modular component structure with separated concerns
+- **CSS Architecture**: Separated styles with component-specific and global stylesheets
+- **API Abstraction**: Centralized API client for consistent error handling and request management
 
 ## Troubleshooting
 
